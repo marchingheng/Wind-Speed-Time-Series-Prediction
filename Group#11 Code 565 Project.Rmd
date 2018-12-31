@@ -1,0 +1,1113 @@
+---
+title: "565 Project Final"
+author: "Yuheng Cai"
+date: "12/2/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message=FALSE,warning=FALSE)
+```
+
+```{r}
+# install.packages("forecast")
+# install.packages("tseries")
+# install.packages("ggplot2")
+# install.packages("xts")
+# install.packages("Metrics")
+# install.packages("fpp2")
+# install.packages("scatterplot3d")
+# install.packages("scales")
+# install.packages("dplyr")
+# install.packages("tilyr")
+# install.package("stats")
+
+library(xts)
+library(Metrics)
+library(fpp2)
+library(scatterplot3d)
+library(scales)
+library(dplyr)
+library(tidyr)
+library(stats)
+library(ggplot2)
+library(forecast)
+library(tseries)
+library(stringr)
+
+setwd("/Users/glorysheryl/Documents/Fall2018/IOE565/Project/")
+winddata = read.csv("wind_data.csv", header = TRUE)
+winddata = as.data.frame(winddata)
+coordinatedata = read.csv("coordinate.csv")
+coordinatedata = as.data.frame(coordinatedata)
+winddata = transform(winddata, date = as.POSIXct(as.character(date), format = "%m/%d/%Y %H:%M"))
+
+t_i = seq(from = as.POSIXct("2007-01-01 01:00"), 
+          to = as.POSIXct("2008-12-01 00:00"), by = "hour")
+hist = length(t_i)
+Time = seq(from = as.POSIXct("2007-01-01 01:00"), 
+          to = as.POSIXct("2009-01-01 00:00"), by = "hour")
+L = length(Time)
+
+# train/valid data
+wind_hist = winddata[1:hist,]
+wind_hist = transform(wind_hist, date = as.POSIXct(as.character(date), format = "%m/%d/%Y %H:%M"))
+
+wind_pred =winddata[(hist+1):nrow(winddata),]
+
+dfws1 = data.frame(t_i)
+dfws1$ws1_h = ts(wind_hist$ws_1, frequency = 365*24)
+dfws1$day = ma(dfws1$ws1_h, order = 24)
+dfws1$mon = ma(dfws1$ws1_h, order=30*24)
+dfws1$qtr = ma(dfws1$ws1_h, order=3*30*24)
+
+dfws2 = data.frame(t_i)
+dfws2$ws2_h = ts(wind_hist$ws_2, frequency = 365*24)
+dfws2$day = ma(dfws2$ws2_h, order = 24)
+dfws2$mon = ma(dfws2$ws2_h, order=30*24)
+dfws2$qtr = ma(dfws2$ws2_h, order=3*30*24)
+
+dfws3 = data.frame(t_i)
+dfws3$ws3_h = ts(wind_hist$ws_3, frequency = 365*24)
+dfws3$day = ma(dfws3$ws3_h, order = 24)
+dfws3$mon = ma(dfws3$ws3_h, order=30*24)
+dfws3$qtr = ma(dfws3$ws3_h, order=3*30*24)
+
+dfws4 = data.frame(t_i)
+dfws4$ws4_h = ts(wind_hist$ws_4, frequency = 365*24)
+dfws4$day = ma(dfws4$ws4_h, order = 24)
+dfws4$mon = ma(dfws4$ws4_h, order=30*24)
+dfws4$qtr = ma(dfws4$ws4_h, order=3*30*24)
+```
+
+
+Data Overview and Target Data Selection
+```{r}
+# correlation plot - correlation btw stations exists
+summary(winddata)
+signif(cor(winddata[,c(2:5)],method="spearman"),digits=3)
+pairs(winddata[,c(2:5)], lower.panel = NULL)
+
+signif(cor(winddata[,c(6:9)],method="spearman"),digits=3)
+pairs(winddata[,c(6:9)], lower.panel = NULL)
+
+# location plot - for excluding the direction 
+# a. wind speed increases/decreases among stations
+# b. latitude difference induces prediction error	
+rownames(coordinatedata) <- coordinatedata[,1]
+latitude = coordinatedata$Latitude-mean(coordinatedata$Latitude)
+longtitude = coordinatedata$Longitude-mean(coordinatedata$Longitude)
+altitude = coordinatedata$Eltitude-mean(coordinatedata$Eltitude)
+location = as.data.frame(cbind(longtitude,latitude,altitude))
+s3d=scatterplot3d(location[,1:3],pch = 16, color = "steelblue",
+              main="Relative Locations of The Stations", xlab = "Longitude",
+              ylab = "Latitude", zlab = "Altitude")
+text(s3d$xyz.convert(location[, 1:3]), labels = rownames(location),
+     cex= 1, col = "red", adj=-0.2)
+
+# time series plot - shows seasonality
+ggplot(dfws1, aes(t_i, ws1_h)) + geom_line() + scale_x_datetime(labels = date_format("%m-%d-%Y %H:%M"),
+                     date_breaks = "1 month")  + ylab("ws_1") +
+            xlab("Time") + theme_classic()
+ggplot(dfws2, aes(t_i, ws2_h)) + geom_line() + scale_x_datetime(labels = date_format("%m-%d-%Y %H:%M"),
+                     date_breaks = "1 month")  + ylab("ws_2") +
+            xlab("Time") + theme_classic()
+ggplot(dfws3, aes(t_i, ws3_h)) + geom_line() + scale_x_datetime(labels = date_format("%m-%d-%Y %H:%M"),
+                     date_breaks = "1 month")  + ylab("ws_3") +
+            xlab("Time") + theme_classic()
+ggplot(dfws4, aes(t_i, ws4_h)) + geom_line() + scale_x_datetime(labels = date_format("%m-%d-%Y %H:%M"),
+                     date_breaks = "1 month")  + ylab("ws4_1") +
+            xlab("Time") + theme_classic()
+
+# hourly, daily, monthly, quarterly ts comparison - seasonality
+ggplot() +
+  geom_line(data = dfws1, aes(x = t_i, y = ws1_h, colour = "Original Hourly Data")) +
+  geom_line(data = dfws1, aes(x = t_i, y = day, colour = "Daily Moving Average")) +
+  geom_line(data = dfws1, aes(x = t_i, y = mon, colour = "Monthly Moving Average"))  +
+  geom_line(data = dfws1, aes(x = t_i, y = qtr, colour = "Quarterly Moving Average"))  + scale_colour_manual("", 
+                      breaks = c("Original Hourly Data", "Daily Moving Average", "Monthly Moving Average","Quarterly Moving Average"),
+                      values = c("palegreen3", "cornflowerblue", "goldenrod2","indianred")) +
+        ylab('Wind Speed from Station No.1') + ggtitle('MA Station No.1')
+
+
+ggplot() +
+  geom_line(data = dfws2, aes(x = t_i, y = ws2_h, colour = "Original Hourly Data")) +
+  geom_line(data = dfws2, aes(x = t_i, y = day, colour = "Daily Moving Average")) +
+  geom_line(data = dfws2, aes(x = t_i, y = mon, colour = "Monthly Moving Average"))  +
+  geom_line(data = dfws2, aes(x = t_i, y = qtr, colour = "Quarterly Moving Average"))  + scale_colour_manual("", 
+                      breaks = c("Original Hourly Data", "Daily Moving Average", "Monthly Moving Average","Quarterly Moving Average"),
+                      values = c("palegreen3", "cornflowerblue", "goldenrod2","indianred")) +
+        ylab('Wind Speed from Station No.2') + ggtitle('MA Station No.2')
+
+
+ggplot() +
+  geom_line(data = dfws3, aes(x = t_i, y = ws3_h, colour = "Original Hourly Data")) +
+  geom_line(data = dfws3, aes(x = t_i, y = day, colour = "Daily Moving Average")) +
+  geom_line(data = dfws3, aes(x = t_i, y = mon, colour = "Monthly Moving Average"))  +
+  geom_line(data = dfws3, aes(x = t_i, y = qtr, colour = "Quarterly Moving Average"))  + scale_colour_manual("", 
+                      breaks = c("Original Hourly Data", "Daily Moving Average", "Monthly Moving Average","Quarterly Moving Average"),
+                      values = c("palegreen3", "cornflowerblue", "goldenrod2","indianred")) +
+        ylab('Wind Speed from Station No.3') + ggtitle('MA Station No.3')
+
+ggplot() +
+  geom_line(data = dfws4, aes(x = t_i, y = ws4_h, colour = "Original Hourly Data")) +
+  geom_line(data = dfws4, aes(x = t_i, y = day, colour = "Daily Moving Average")) +
+  geom_line(data = dfws4, aes(x = t_i, y = mon, colour = "Monthly Moving Average"))  +
+  geom_line(data = dfws4, aes(x = t_i, y = qtr, colour = "Quarterly Moving Average"))  + scale_colour_manual("", 
+                      breaks = c("Original Hourly Data", "Daily Moving Average", "Monthly Moving Average","Quarterly Moving Average"),
+                      values = c("palegreen3", "cornflowerblue", "goldenrod2","indianred")) +
+        ylab('Wind Speed from Station No.4') + ggtitle('MA Station No.4')
+```
+
+```{r}
+# Find good subsets of the data
+# Decomposition Plot - quarterly
+ws1_qtr_ma = ts(na.omit(dfws1$ws1_h), frequency = 3*30*24)
+decomp_ws1_qtr = stl(as.ts(na.omit(ws1_qtr_ma)), s.window="periodic")
+deseasonal_ws1_qtr = seasadj(decomp_ws1_qtr)
+plot(decomp_ws1_qtr, main = 'Decomposition Plot of Station No.1 Wind Speed, Quarterly')
+
+ws2_qtr_ma = ts(na.omit(dfws2$ws2_h), frequency = 3*30*24)
+decomp_ws2_qtr = stl(as.ts(na.omit(ws2_qtr_ma)), s.window="periodic")
+deseasonal_ws2_qtr = seasadj(decomp_ws2_qtr)
+plot(decomp_ws2_qtr, main = 'Decomposition Plot of Station No.2 Wind Speed, Quarterly')
+
+ws3_qtr_ma = ts(na.omit(dfws3$ws3_h), frequency = 3*30*24)
+decomp_ws3_qtr = stl(as.ts(na.omit(ws3_qtr_ma)), s.window="periodic")
+deseasonal_ws3_qtr = seasadj(decomp_ws3_qtr)
+plot(decomp_ws3_qtr, main = 'Decomposition Plot of Station No.3 Wind Speed, Quarterly')
+
+ws4_qtr_ma = ts(na.omit(dfws4$ws4_h), frequency = 3*30*24)
+decomp_ws4_qtr = stl(as.ts(na.omit(ws4_qtr_ma)), s.window="periodic")
+deseasonal_ws4_qtr = seasadj(decomp_ws4_qtr)
+plot(decomp_ws4_qtr, main = 'Decomposition Plot of Station No.4 Wind Speed, Quarterly')
+
+# Decomposition Plot - monthly for 07/08 - 12/08 is a good prediction window
+# a. Pretty similar wind speed, exactly 2 quarters
+# b. still exist seasonality, indicates we need to use data transformation for seasonal adj and deterministic model
+t_1 = seq(from = as.POSIXct("2008-07-01 01:00"), 
+          to = as.POSIXct("2009-01-01 00:00"), by = "hour")
+# t_2 = seq(from = as.POSIXct("2008-06-01 01:00"), 
+#          to = as.POSIXct("2009-01-01 00:00"), by = "hour")
+ws1_mon_ma = ts(na.omit(dfws1$ws1_h[(L-length(t_1)+2):L]), frequency = 30*24)
+decomp_ws1_mon = stl(as.ts(na.omit(ws1_mon_ma)), s.window="periodic")
+deseasonal_ws1_mon = seasadj(decomp_ws1_mon)
+plot(decomp_ws1_mon, main = 'Decomposition Plot of Station No.1 Wind Speed, Monthly')
+
+ws2_mon_ma = ts(na.omit(dfws2$ws2_h[(L-length(t_1)+2):L]), frequency = 30*24)
+decomp_ws2_mon = stl(as.ts(na.omit(ws2_mon_ma)), s.window="periodic")
+deseasonal_ws2_mon = seasadj(decomp_ws2_mon)
+plot(decomp_ws2_mon, main = 'Decomposition Plot of Station No.2 Wind Speed, Monthly')
+
+ws3_mon_ma = ts(na.omit(dfws3$ws3_h[(L-length(t_1)+2):L]), frequency = 30*24)
+decomp_ws3_mon = stl(as.ts(na.omit(ws3_mon_ma)), s.window="periodic")
+deseasonal_ws3_mon = seasadj(decomp_ws3_mon)
+plot(decomp_ws3_mon, main = 'Decomposition Plot of Station No.3 Wind Speed, Monthly')
+
+ws4_mon_ma = ts(na.omit(dfws4$ws4_h[(L-length(t_1)+2):L]), frequency = 30*24)
+decomp_ws4_mon = stl(as.ts(na.omit(ws4_mon_ma)), s.window="periodic")
+deseasonal_ws4_mon = seasadj(decomp_ws4_mon)
+plot(decomp_ws4_mon, main = 'Decomposition Plot of Station No.4 Wind Speed, Monthly')
+```
+
+Data Preprocessing
+```{r}
+#de-seasonalization, daily moving average
+winddata_712 <- winddata[(L-length(t_1)+2):L,]
+winddata_712$time<-seq(1,24, by=1)
+dfdesea<- winddata_712 %>% group_by(time) %>% summarise(mean1 = mean(ws_1), mean2= mean(ws_2), mean3 = mean(ws_3), mean4 = mean(ws_4))
+
+dfdesea2 = as.data.frame(lapply(dfdesea, rep, (length(winddata_712[,1])/24)))
+
+wind_des = as.data.frame(winddata_712$date)
+colnames(wind_des) <- c("date")
+wind_des$ws_1 = winddata_712$ws_1 - dfdesea2$mean1
+wind_des$ws_2 = winddata_712$ws_2 - dfdesea2$mean2
+wind_des$ws_3 = winddata_712$ws_3 - dfdesea2$mean3
+wind_des$ws_4 = winddata_712$ws_4 - dfdesea2$mean4
+
+hist_des = wind_des[1:(length(wind_des$ws_1)-24*31),]
+pred_des = wind_des[(length(wind_des$ws_1)-24*31+1):4416,]
+#write.csv(wind_des, "/Users/glorysheryl/Documents/Fall2018/IOE565/Project/Windhist_de_day.csv")
+
+wind_des$mon <- str_sub(wind_des$date,6,7)
+wind_des$mon <- as.integer(wind_des$mon)
+wind_des$mon[744] <-7
+wind_des$mon[744+744] <-8
+wind_des$mon[744+744+720] <-9
+wind_des$mon[744+744+720+744] <-10
+wind_des$mon[744+744+720+744+720] <- 11
+wind_des$mon[wind_des$mon==1] <- 12
+
+
+
+dfdesea_mon<- wind_des %>% group_by(mon) %>% summarise(mean1 = mean(ws_1), mean2= mean(ws_2), mean3 = mean(ws_3), mean4 = mean(ws_4))
+
+length(wind_des$mon[wind_des$mon==7])#744
+length(wind_des$mon[wind_des$mon==8])#744
+length(wind_des$mon[wind_des$mon==9])#720
+length(wind_des$mon[wind_des$mon==10])#744
+length(wind_des$mon[wind_des$mon==11])#720
+length(wind_des$mon[wind_des$mon==12])#744
+
+n.times <- c(744,744,720,744,720,744) 
+dfdesea2_mon = dfdesea_mon[rep(seq_len(nrow(dfdesea_mon)), n.times),]
+
+wind_des_mon = as.data.frame(winddata_712$date)
+colnames(wind_des_mon)<-c("date")
+wind_des_mon$ws_1 = wind_des$ws_1 - dfdesea2_mon$mean1
+wind_des_mon$ws_2 = wind_des$ws_2 - dfdesea2_mon$mean2
+wind_des_mon$ws_3 = wind_des$ws_3 - dfdesea2_mon$mean3
+wind_des_mon$ws_4 = wind_des$ws_4 - dfdesea2_mon$mean4
+
+hist_des_mon = wind_des_mon[1:(length(wind_des_mon$ws_1)-31*24),]
+lh = length(hist_des_mon[,2])
+
+autoplot(as.ts(wind_des_mon$ws_1),xlab = "Time", ylab = "ws_1")
+autoplot(as.ts(wind_des_mon$ws_2),xlab = "Time", ylab = "ws_2")
+autoplot(as.ts(wind_des_mon$ws_3),xlab = "Time", ylab = "ws_3")
+autoplot(as.ts(wind_des_mon$ws_4),xlab = "Time", ylab = "ws_4")
+#write.csv(hist_des_mon, "/Users/glorysheryl/Documents/Fall2018/IOE565/Project/Windhist_de_mon.csv")
+
+# Stationarity test
+#stationarity test
+Box.test (hist_des_mon$ws_1, lag = 1, type = "Ljung")
+acf(hist_des_mon$ws_1, type = "correlation",main = "ws_1, ACF")
+pacf(hist_des_mon$ws_1,main = "ws_1, PACF")
+
+Box.test (hist_des_mon$ws_2, lag = 1, type = "Ljung")
+acf(hist_des_mon$ws_2,main = "ws_2, ACF")
+pacf(hist_des_mon$ws_2,main = "ws_2, PACF")
+
+Box.test (hist_des_mon$ws_3, lag = 1, type = "Ljung")
+acf(hist_des_mon$ws_3,main = "ws_3, ACF")
+pacf(hist_des_mon$ws_3,main = "ws_3, PACF")
+
+Box.test (hist_des_mon$ws_4, lag = 1, type = "Ljung")
+acf(hist_des_mon$ws_4, main = "ws_4, ACF")
+pacf(hist_des_mon$ws_4,main = "ws_4, PACF")
+```
+
+```{r}
+# Fit deterministic trend model
+# set period = 12 and period = 24
+a_t <- array()
+w <- 2*pi/24
+w1 <- 2*pi/12
+f1 <- function(x){
+        alpha0 <- x[1]
+        beta1 <- x[2]
+        beta2 <- x[3]
+        beta3 <- x[4]
+        beta4 <- x[5]
+
+        ws_new <- train_data
+        t <- 1:lh
+        for (i in 1:lh){
+                a_t[i] <- (ws_new[i]-alpha0-beta1*sin(w*t[i])
+                        -beta2*cos(w*t[i])-beta3*sin(w1*t[i])-beta4*cos(w1*t[i]))^2
+        }
+        return(sum(a_t))
+}
+
+
+```
+
+```{r}
+#for ws_1
+# Fit ARMA(m,n) on the residual of the deterministic model
+train_data <- hist_des_mon$ws_1
+coefs1 <- nlm(f1,c(5,5,5,5,5))
+alpha01 = coefs1$estimate[1]
+beta11 = coefs1$estimate[2]
+beta21 = coefs1$estimate[3]
+beta31 = coefs1$estimate[4]
+beta41 = coefs1$estimate[5]
+resid1 = rep(0,lh)
+t <- 1:lh
+for (i in 1:lh) {
+        resid1[i] = (hist_des_mon$ws_1[i] - (alpha01 + beta11*sin(w*t[i]) + beta21*cos(w*t[i]) + beta31*sin(w1*t[i])+beta41*cos(w1*t[i]))) 
+}
+
+
+#for ws_2
+# Fit ARMA(m,n) on the residual of the deterministic model
+train_data <- hist_des_mon$ws_2
+coefs2 <- nlm(f1,c(5,5,5,5,5))
+alpha02 = coefs2$estimate[1]
+beta12 = coefs2$estimate[2]
+beta22 = coefs2$estimate[3]
+beta32 = coefs2$estimate[4]
+beta42 = coefs2$estimate[5]
+resid2 = rep(0,lh)
+t <- 1:lh
+for (i in 1:lh) {
+        resid2[i] = (hist_des_mon$ws_2[i] - (alpha02 + beta12*sin(w*t[i]) + beta22*cos(w*t[i]) + beta32*sin(w1*t[i])+beta42*cos(w1*t[i]))) 
+}
+
+#for ws_3
+# Fit ARMA(m,n) on the residual of the deterministic model
+train_data <- hist_des_mon$ws_3
+coefs3 <- nlm(f1,c(5,5,5,5,5))
+alpha03 = coefs3$estimate[1]
+beta13 = coefs3$estimate[2]
+beta23 = coefs3$estimate[3]
+beta33 = coefs3$estimate[4]
+beta43 = coefs3$estimate[5]
+resid3 = rep(0,lh)
+t <- 1:lh
+for (i in 1:lh) {
+        resid3[i] = (hist_des_mon$ws_3[i] - (alpha03 + beta13*sin(w*t[i]) + beta23*cos(w*t[i]) + beta33*sin(w1*t[i])+beta43*cos(w1*t[i]))) 
+}
+
+
+#for ws_4
+# Fit ARMA(m,n) on the residual of the deterministic model
+train_data <- hist_des_mon$ws_4
+coefs4 <- nlm(f1,c(5,5,5,5,5))
+alpha04 = coefs4$estimate[1]
+beta14 = coefs4$estimate[2]
+beta24 = coefs4$estimate[3]
+beta34 = coefs4$estimate[4]
+beta44 = coefs4$estimate[5]
+resid4 = rep(0,lh)
+t <- 1:lh
+for (i in 1:lh) {
+        resid4[i] = (hist_des_mon$ws_4[i] - (alpha04 + beta14*sin(w*t[i]) + beta24*cos(w*t[i]) + beta34*sin(w1*t[i])+beta44*cos(w1*t[i]))) 
+}
+```
+
+```{r}
+#for ws_1
+# fit the resid1 with ARMA model 
+# AR(1)
+mod1_s1 = arma(resid1,order=c(1,0))
+coef(mod1_s1)
+SSE1 = sum(na.omit(residuals(mod1_s1))^2)
+
+## ARMA(2,1)
+mod2_s1 = arma(resid1,order = c(2,1))
+coef(mod2_s1)
+SSE2 = sum(na.omit(residuals(mod2_s1))^2)
+
+## F - ARMA(2,1) vs AR(1) on ws1
+s1 = 3 - 1
+f21 = ((SSE1 - SSE2)/s1)/(SSE2/(lh-3))
+fstat21 = qf(0.95, df1=s1, df2=lh-3) 
+print(paste('F-test statistics = ', round(f21,4), ',critical value=', round(fstat21,4), ', F-test statistics > critical value. Thus we prefer ARMA(2,1) than AR(1) for ws1.'))
+
+## ARMA(4,3)
+mod3_s1 = arma(resid1,order = c(4,3))
+coef(mod3_s1)
+SSE3 = sum(na.omit(residuals(mod3_s1))^2)
+
+## F - ARMA(4,3) vs ARma(2,1) on ws1
+s2 = 7-3
+f43 = ((SSE2 - SSE3)/s2)/(SSE3/(lh-7))
+fstat43 = qf(0.95, df1=s2, df2=lh-7) 
+print(paste('F-test statistics = ', round(f43,4), ',critical value=', round(fstat43,4), ', F-test statistics > critical value. Thus we prefer ARMA(4,3) than ARMA(2,1) for ws1.'))
+
+## ARMA(5,4)
+mod4_s1 = arma(resid1,order = c(5,4))
+coef(mod4_s1)
+SSE4 = sum(na.omit(residuals(mod4_s1))^2)
+
+## F - ARMA(5,4) vs ARMA(4,3) on ws1
+s2 = 9-7
+f54 = ((SSE3 - SSE4)/s2)/(SSE4/(lh-9))
+fstat54 = qf(0.95, df1=s2, df2=lh-9) 
+print(paste('F-test statistics = ', round(f54,4), ',critical value=', round(fstat54,4), ', F-test statistics > critical value. Thus we prefer ARMA(5,4) than ARMA(4,3) for ws1.'))
+
+## ARMA(4,4)
+mod5_s1 = arma(resid1,order = c(4,4))
+coef(mod5_s1)
+SSE5 = sum(na.omit(residuals(mod5_s1))^2)
+
+## F - ARMA(4,4) vs ARMA(4,3) on ws1
+s2 = 8-7
+f44 = ((SSE3 - SSE5)/s2)/(SSE5/(lh-8))
+fstat44 = qf(0.95, df1=s2, df2=lh-8) 
+print(paste('F-test statistics = ', round(f44,4), ',critical value=', round(fstat44,4), ', F-test statistics > critical value. Thus we prefer ARMA(4,4) than ARMA(4,3) for ws1.'))
+
+## F - ARMA(5,4) vs ARMA(4,4) on ws1
+s2 = 9-8
+f5444 = ((SSE4 - SSE5)/s2)/(SSE5/(lh-9))
+fstat5444 = qf(0.95, df1=s2, df2=lh-9) 
+print(paste('F-test statistics = ', round(f5444,4), ',critical value=', round(fstat5444,4), ', F-test statistics < critical value. Thus we prefer ARMA(4,4) than ARMA(5,4) for ws1. ARMA(4,4) is the final model we pick for ws1.'))
+
+#for ws_1
+# Box test
+Box.test(residuals(mod1_s1), type = 'Ljung', lag = 24)
+Box.test(residuals(mod2_s1), type = 'Ljung', lag = 24)
+Box.test(residuals(mod3_s1), type = 'Ljung', lag = 24)
+Box.test(residuals(mod4_s1), type = 'Ljung', lag = 24)
+Box.test(residuals(mod5_s1), type = 'Ljung', lag = 24)
+
+# Validate the final model ARMA(4,4) with Pormanteau test
+K = 24
+Q = 0
+rho = rep(0, K)
+for (k in 1:K){
+  tt <- max(4,4)+1+k
+  e = residuals(mod5_s1)
+  Et <- e[tt:lh]
+  Etk <- e[(tt-k):(lh-k)]
+  gamma_Et <- t(Et)%*%Et
+  gamma_Etk <- t(Etk)%*%Etk
+  rho[k] <- t(Etk) %*% Et/sqrt(gamma_Et*gamma_Etk)
+  Q <- Q+rho[k]^2
+}
+Q <- (lh-8)*Q
+crit_Q = qchisq(0.95, K-8)
+print(paste('The Q-test value of ARMA(4,4) is', round(Q,2),', while the corresponding critical Chi^2 value is',round(crit_Q,2), ',so Q < Chi^2 value and we can conclude that a_ts are uncorrelated. A_ts are stationary.'))
+
+autocor<-acf(e, na.action=na.remove, lag.max = K, xlim=c(1,25),ylim = c(-0.05,0.05), main ="ws_1 ARMA(4,4)")
+### check the calculation, note that acf(1)=1 for time lag equals 0
+autocor$acf[2:(K+1)]-rho
+
+m1=arima(resid1,c(4,0,4))
+autoplot(m1,which=1)+labs(title="Roots for Station No.1")
+tsdiag(m1)
+
+## Bartlett test
+abs_bartlett_critical_value = 2/sqrt(lh)
+index = seq(1:K)
+upper = rho[1:K]
+upper[1:24] = abs_bartlett_critical_value
+plot(index,rho[1:K], main = "Autocorrelation Values ws_1 ARMA(4,4)", xlab = "K", ylab = "rho",ylim = c(-0.05,0.05))
+abline(h = upper[1:K], col = "red")
+abline(h = -upper[1:K], col = "red")
+```
+
+```{r warning=F, message=F}
+#for ws_2
+# fit the resid2 with ARMA model 
+# AR(1)
+mod1_s2 = arma(resid2,order=c(1,0))
+coef(mod1_s2)
+SSE1 = sum(na.omit(residuals(mod1_s2))^2)
+
+## ARMA(2,1)
+mod2_s2 = arma(resid2,order = c(2,1))
+coef(mod2_s2)
+SSE2 = sum(na.omit(residuals(mod2_s2))^2)
+
+## F - ARMA(2,1) vs AR(1) on ws2
+s1 = 3 - 1
+f21 = ((SSE1 - SSE2)/s1)/(SSE2/(lh-3))
+fstat21 = qf(0.95, df1=s1, df2=lh-3) 
+print(paste('F-test statistics = ', round(f21,4), ',critical value=', round(fstat21,4), ', F-test statistics > critical value. Thus we prefer ARMA(2,1) than AR(1) for ws_2.'))
+
+## ARMA(4,3)
+mod3_s2 = arma(resid2,order = c(4,3))
+coef(mod3_s2)
+SSE3 = sum(na.omit(residuals(mod3_s2))^2)
+
+## F - ARMA(4,3) vs ARma(2,1) on ws2
+s2 = 7-3
+f43 = ((SSE2 - SSE3)/s2)/(SSE3/(lh-7))
+fstat43 = qf(0.95, df1=s2, df2=lh-7) 
+print(paste('F-test statistics = ', round(f43,4), ',critical value=', round(fstat43,4), ', F-test statistics > critical value. Thus we prefer ARMA(4,3) than ARMA(2,1) for ws_2.'))
+
+## ARMA(5,4)
+mod4_s2 = arima(resid2,order = c(5,0,4))
+coef(mod4_s2)
+SSE4 = sum(na.omit(residuals(mod4_s2))^2)
+
+
+## F - ARMA(5,4) vs ARma(4,3) on ws2
+s2 = 9-7
+f54 = ((SSE3 - SSE4)/s2)/(SSE4/(lh-9))
+fstat54 = qf(0.95, df1=s2, df2=lh-9) 
+print(paste('F-test statistics = ', round(f54,4), ',critical value=', round(fstat54,4), ', F-test statistics > critical value. Thus we prefer ARMA(5,4) than ARMA(4,3) for ws_2.'))
+
+## ARMA(6,5)
+mod5_s2 = arima(resid2,order = c(6,0,5))
+coef(mod5_s2)
+SSE5 = sum(na.omit(residuals(mod5_s2))^2)
+
+
+## F - ARMA(6,5) vs ARma(5,4) on ws2
+s2 = 11-9
+f65 = ((SSE4 - SSE5)/s2)/(SSE5/(lh-11))
+fstat65 = qf(0.95, df1=s2, df2=lh-11) 
+print(paste('F-test statistics = ', round(f65,4), ',critical value=', round(fstat65,4), ', F-test statistics < critical value. Thus we prefer ARMA(5,4) than ARMA(6,5) for ws_2. ARMA(5,4) is the final model for ws_2.'))
+
+
+#for ws_2
+# box test
+Box.test(residuals(mod1_s2), type = 'Ljung', lag = 24)
+Box.test(residuals(mod2_s2), type = 'Ljung', lag = 24)
+Box.test(residuals(mod3_s2), type = 'Ljung', lag = 24)
+Box.test(residuals(mod4_s2), type = 'Ljung', lag = 24)##arma(6,5)
+
+# Validate the final model ARMA(5,4) with Pormanteau test
+K = 24
+Q = 0
+rho = rep(0, K)
+for (k in 1:K){
+  tt <- max(5,4)+1+k
+  e = residuals(mod4_s2)
+  Et <- e[tt:lh]
+  Etk <- e[(tt-k):(lh-k)]
+  gamma_Et <- t(Et)%*%Et
+  gamma_Etk <- t(Etk)%*%Etk
+  rho[k] <- t(Etk) %*% Et/sqrt(gamma_Et*gamma_Etk)
+  Q <- Q+rho[k]^2
+}
+Q <- (lh-9)*Q
+crit_Q = qchisq(0.95, K-9)
+print(paste('The Q-test value of ARMA(5,4) is', round(Q,2),', while the corresponding critical Chi^2 value is',round(crit_Q,2), ',so Q < Chi^2 value and we can conclude that a_ts are uncorrelated. A_ts are stationary.'))
+
+autocor<-acf(e, na.action=na.remove, lag.max = K, xlim=c(1,25),ylim = c(-0.05,0.05), main = "ws_2, ARMA(5,4)")
+### check the calculation, note that acf(1)=1 for time lag equals 0
+autocor$acf[2:(K+1)]-rho
+
+m2=arima(resid2,c(4,0,3))
+autoplot(m2,which=1)+labs(title="Roots for Station No.2")
+tsdiag(m2)
+
+## Bartlett test
+abs_bartlett_critical_value = 2/sqrt(lh)
+index = seq(1:K)
+upper = rho[1:K]
+upper[1:24] = abs_bartlett_critical_value
+plot(index,rho[1:K], main = "Autocorrelation Values, ws_2, ARMA(6,5)", xlab = "K", ylab = "rho",ylim = c(-0.05,0.05))
+abline(h = upper[1:K], col = "red")
+abline(h = -upper[1:K], col = "red")
+```
+```{r}
+#for ws_3
+# fit the resid1 with ARMA model 
+# AR(1)
+mod1_s3 = arma(resid3,order=c(1,0))
+coef(mod1_s3)
+SSE1 = sum(na.omit(residuals(mod1_s3))^2)
+
+## ARMA(2,1)
+mod2_s3 = arma(resid3,order = c(2,1))
+coef(mod2_s3)
+SSE2 = sum(na.omit(residuals(mod2_s3))^2)
+
+## F - ARMA(2,1) vs AR(1) on ws3
+s1 = 3 - 1
+f21 = ((SSE1 - SSE2)/s1)/(SSE2/(lh-3))
+fstat21 = qf(0.95, df1=s1, df2=lh-3) 
+print(paste('F-test statistics = ', round(f21,4), ',critical value=', round(fstat21,4), ', F-test statistics > critical value. Thus we prefer ARMA(2,1) than AR(1) for ws_3.'))
+
+## ARMA(4,3)
+mod3_s3 = arma(resid3,order = c(4,3))
+coef(mod3_s3)
+SSE3 = sum(na.omit(residuals(mod3_s3))^2)
+
+## F - ARMA(4,3) vs ARma(2,1) on ws3
+s2 = 7-3
+f43 = ((SSE2 - SSE3)/s2)/(SSE3/(lh-7))
+fstat43 = qf(0.95, df1=s2, df2=lh-7) 
+print(paste('F-test statistics = ', round(f43,4), ',critical value=', round(fstat43,4), ', F-test statistics > critical value. Thus we prefer ARMA(4,3) than ARMA(2,1) for ws_3.'))
+
+## ARMA(6,5)
+# mod4_s3 = arma(resid3,order = c(4,4))
+# coef(mod4_s3)
+# SSE4 = sum(na.omit(residuals(mod4_s3))^2)
+# 
+# ## F - ARMA(4,4) vs ARma(4,3) on ws1
+# s2 = 8-7
+# f65 = ((SSE2 - SSE3)/s2)/(SSE3/(lh-8))
+# fstat65 = qf(0.95, df1=s2, df2=lh-8) 
+# print(paste('F-test statistics = ', round(f65,4), ',critical value=', round(fstat65,4), ', F-test statistics > critical value. Thus we prefer ARMA(6,5) than ARMA(4,3) for ws3.'))
+
+#for ws_3
+# Validate the final model ARMA(4,4) with Pormanteau test
+K = 24
+Q = 0
+rho = rep(0, K)
+for (k in 1:K){
+  tt <- max(4,3)+1+k
+  e = residuals(mod3_s3)
+  Et <- e[tt:lh]
+  Etk <- e[(tt-k):(lh-k)]
+  gamma_Et <- t(Et)%*%Et
+  gamma_Etk <- t(Etk)%*%Etk
+  rho[k] <- t(Etk) %*% Et/sqrt(gamma_Et*gamma_Etk)
+  Q <- Q+rho[k]^2
+}
+Q <- (lh-7)*Q
+crit_Q = qchisq(0.95, K-7)
+print(paste('The Q-test value of ARMA(4,3) is', round(Q,2),', while the corresponding critical Chi^2 value is',round(crit_Q,2), ',so Q < Chi^2 value and we can conclude that a_ts are uncorrelated. A_ts are stationary.'))
+
+autocor<-acf(e, na.action=na.remove, lag.max = K, xlim=c(1,25),ylim = c(-0.05,0.05), main = "ws_3, ARMA(4,3)")
+### check the calculation, note that acf(1)=1 for time lag equals 0
+autocor$acf[2:(K+1)]-rho
+
+m3=arima(resid3,c(4,0,3))
+autoplot(m3,which=1, size = 1)+labs(title="Roots for Station No.3")+ geom_point(size = 0.00000000001)
+tsdiag(m3)
+
+## Bartlett test
+abs_bartlett_critical_value = 2/sqrt(lh)
+index = seq(1:K)
+upper = rho[1:K]
+upper[1:24] = abs_bartlett_critical_value
+plot(index,rho[1:K], main = "Autocorrelation Values, ws_3, ARMA(4,3)", xlab = "K", ylab = "rho",ylim = c(-0.05,0.05))
+abline(h = upper[1:K], col = "red")
+
+
+abline(h = -upper[1:K], col = "red")
+```
+
+```{r}
+#for ws_4
+# fit the resid1 with ARMA model 
+# AR(1)
+mod1_s4 = arma(resid4,order=c(1,0))
+coef(mod1_s4)
+SSE1 = sum(na.omit(residuals(mod1_s4))^2)
+
+## ARMA(2,1)
+mod2_s4 = arma(resid4,order = c(2,1))
+coef(mod2_s4)
+SSE2 = sum(na.omit(residuals(mod2_s4))^2)
+
+## F - ARMA(2,1) vs AR(1) on ws4
+s1 = 3 - 1
+f21 = ((SSE1 - SSE2)/s1)/(SSE2/(lh-3))
+fstat21 = qf(0.95, df1=s1, df2=lh-3) 
+print(paste('F-test statistics = ', round(f21,4), ',critical value=', round(fstat21,4), ', F-test statistics > critical value. Thus we prefer ARMA(2,1) than AR(1) for ws_4.'))
+
+## ARMA(4,3)
+mod3_s4 = arma(resid4,order = c(4,3))
+coef(mod3_s4)
+SSE3 = sum(na.omit(residuals(mod3_s4))^2)
+
+## F - ARMA(3,2) vs ARMA(2,1) on ws4
+s1 = 7 - 3
+f43 = ((SSE2 - SSE3)/s1)/(SSE3/(lh-7))
+fstat43 = qf(0.95, df1=s1, df2=lh-7) 
+print(paste('F-test statistics = ', round(f43,4), ',critical value=', round(fstat43,4), ', F-test statistics > critical value. Thus we prefer ARMA(2,1) to ARMA(4,3) for ws_4. So ARMA(2,1) is the final model for ws_4.'))
+
+
+#for ws_4
+Box.test(residuals(mod1_s4), type = 'Ljung', lag = 24)
+Box.test(residuals(mod2_s4), type = 'Ljung', lag = 24)
+Box.test(residuals(mod3_s4), type = 'Ljung', lag = 24)
+
+# Validate the final model ARMA(2,1) with Pormanteau test
+K = 24
+Q = 0
+rho = rep(0, K)
+for (k in 1:K){
+  tt <- max(2,1)+1+k
+  e = residuals(mod2_s4)
+  Et <- e[tt:lh]
+  Etk <- e[(tt-k):(lh-k)]
+  gamma_Et <- t(Et)%*%Et
+  gamma_Etk <- t(Etk)%*%Etk
+  rho[k] <- t(Etk) %*% Et/sqrt(gamma_Et*gamma_Etk)
+  Q <- Q+rho[k]^2
+}
+Q <- (lh-3)*Q
+crit_Q = qchisq(0.95, K-3)
+print(paste('The Q-test value of ARMA(2,1) is', round(Q,2),', while the corresponding critical Chi^2 value is',round(crit_Q,2), ',so Q < Chi^2 value and we can conclude that a_ts are uncorrelated. A_ts are stationary.'))
+
+autocor<-acf(e, na.action=na.remove, lag.max = K, xlim=c(1,25),ylim = c(-0.05,0.05),main="ws_4, AMRA(2,1)")
+### check the calculation, note that acf(1)=1 for time lag equals 0
+autocor$acf[2:(K+1)]-rho
+
+m4=arima(resid4,c(2,0,1))
+autoplot(m4,which=1)+labs(title="Roots for Station No.4")+ geom_point(size = 0.00000000001)
+tsdiag(m4)
+
+## Bartlett test
+abs_bartlett_critical_value = 2/sqrt(lh)
+index = seq(1:K)
+upper = rho[1:K]
+upper[1:24] = abs_bartlett_critical_value
+plot(index,rho[1:K], main = "Autocorrelation Values, ws_4, AMRA(2,1)", xlab = "K", ylab = "rho",ylim = c(-0.05,0.05))
+abline(h = upper[1:K], col = "red")
+abline(h = -upper[1:K], col = "red")
+```
+
+```{r,warning=FALSE}
+#Prediction for ws1 arma(4,4)
+final1 = wind_pred[,c(1,2)]
+for (i in seq(0,743)){
+  df = winddata_712[(1+i):(lh+i),c(10,2)]
+  df2 =df %>% group_by(time) %>% summarise(mean1=mean(ws_1))
+  df3 = as.data.frame(lapply(df2,rep, lh/24))
+  df4 = as.data.frame(winddata_712[(1+i):(lh+i),1])
+  colnames(df4)<-c("date")
+  df4$ws_1 = df$ws_1 - df3$mean1
+  
+  df4$mon = str_sub(df4$date,6,7)
+  df4$mon <- as.integer(df4$mon)
+  df4$mon[744] <-7
+  df4$mon[744+744] <-8
+  df4$mon[744+744+720] <-9
+  df4$mon[744+744+720+744] <-10
+  df4$mon[744+744+720+744+720] <- 11
+  df4$mon[df4$mon==1] <- 12
+  
+  dfde_mon = df4 %>% group_by(mon) %>% summarise(mean1 = mean(ws_1))
+  mon12=length(df4$mon[df4$mon==12])#745
+
+  n.times <- c(744,720,744,720) 
+  dfde2_mon_811 = dfde_mon[rep(seq_len(nrow(dfde_mon[2:5,])), n.times),]
+  
+  if(length(df4$mon[df4$mon==12])==0){
+          n.times<- c(744,744,720,744,720) 
+          dfde2_mon = dfde_mon[rep(seq_len(nrow(dfde_mon)), n.times),]
+  }else{
+          dfde2_mon_12=as.data.frame(lapply(dfde_mon[6,],rep, i))
+          dfde2_mon_7=as.data.frame(lapply(dfde_mon[1,],rep, (744-i)))
+          dfde2_mon = rbind(dfde2_mon_7,dfde2_mon_811,dfde2_mon_12)  
+  }
+  
+  #dfde2_mon_12 = as.data.frame(lapply(dfde_mon,rep, lh/24))
+  #n.times <- c(744,744,720,744,720,mon12) 
+  #dfde2_mon = dfde_mon[rep(seq_len(nrow(dfde_mon)), n.times),]
+
+  df5 = as.data.frame(winddata_712[(1+i):(lh+i),1])
+  colnames(df5)<-c("date")
+  df5$ws_1 = df4$ws_1 - dfde2_mon$mean1
+  
+  refit_ws1<- arima(df5$ws_1, order=c(4,0,4))
+  
+  trend1_ws1<-alpha01 + beta11*sin(w*(lh+i)) + beta21*cos(w*(lh+i)) + beta31*sin(w1*(lh+i))+beta41*cos(w1*(lh+i))
+  trend2_ws1<-alpha01 + beta11*sin(w*(lh+i+1)) + beta21*cos(w*(lh+i+1)) + beta31*sin(w1*(lh+i+1))+beta41*cos(w1*(lh+i+1))
+  trend3_ws1<-alpha01 + beta11*sin(w*(lh+i+2)) + beta21*cos(w*(lh+i+2)) + beta31*sin(w1*(lh+i+2))+beta41*cos(w1*(lh+i+2))
+  
+  daily_idx=rep(0,24)
+  if((i+1)%%24==0){
+          daily_idx=24
+  }else{
+          daily_idx=(i+1)%%24
+  }
+  
+  if(i==0){
+          final1$one_step[i+1] <- trend1_ws1 + forecast(refit_ws1,h=3)$mean[1] + df2[daily_idx,2]
+          final1$two_step[i+1] <- trend2_ws1 + forecast(refit_ws1,h=3)$mean[2] + df2[daily_idx,2]
+          final1$three_step[i+1] <- trend3_ws1 + forecast(refit_ws1,h=3)$mean[3] + df2[daily_idx,2]
+  }else{
+          final1$one_step[i+1] <- trend1_ws1 + forecast(refit_ws1,h=3)$mean[1] + dfde_mon[6,2] + df2[daily_idx,2]
+  final1$two_step[i+1] <- trend2_ws1 + forecast(refit_ws1,h=3)$mean[2] + dfde_mon[6,2] + df2[daily_idx,2]
+  final1$three_step[i+1] <- trend3_ws1 + forecast(refit_ws1,h=3)$mean[3] + dfde_mon[6,2] + df2[daily_idx,2]
+  }
+}
+
+final1$one_resid<-final1$ws_1-as.numeric(final1$one_step)
+final1$two_resid<-final1$ws_1-as.numeric(final1$two_step)
+final1$three_resid<-final1$ws_1-as.numeric(final1$three_step)
+
+final1$one_step<-as.numeric(final1$one_step)
+final1$two_step<-as.numeric(final1$two_step)
+final1$three_step<-as.numeric(final1$three_step)
+
+RMSE_one_ws1<-sum((final1$ws_1-final1$one_step)^2)/length(final1$one_resid)
+RMSE_two_ws1<-sum((final1$ws_1-final1$two_step)^2)/length(final1$two_resid)
+RMSE_three_ws1<-sum((final1$ws_1-final1$three_step)^2)/length(final1$three_resid)
+
+write.csv(final1,"/Users/glorysheryl/Documents/Fall2018/IOE565/Project/final1.csv")
+```
+
+```{r,warning=FALSE}
+#Prediction for ws2 arma(5,4)
+final2 = wind_pred[,c(1,3)]
+for (i in seq(0,743)){
+  df = winddata_712[(1+i):(lh+i),c(10,3)]
+  df2 =df %>% group_by(time) %>% summarise(mean2=mean(ws_2))
+  df3 = as.data.frame(lapply(df2,rep, lh/24))
+  df4 = as.data.frame(winddata_712[(1+i):(lh+i),1])
+  colnames(df4)<-c("date")
+  df4$ws_2 = df$ws_2 - df3$mean2
+  
+  df4$mon = str_sub(df4$date,6,7)
+  df4$mon <- as.integer(df4$mon)
+  df4$mon[744] <-7
+  df4$mon[744+744] <-8
+  df4$mon[744+744+720] <-9
+  df4$mon[744+744+720+744] <-10
+  df4$mon[744+744+720+744+720] <- 11
+  df4$mon[df4$mon==1] <- 12
+  
+  dfde_mon = df4 %>% group_by(mon) %>% summarise(mean2 = mean(ws_2))
+  mon12=length(df4$mon[df4$mon==12])#745
+
+  n.times <- c(744,720,744,720) 
+  dfde2_mon_811 = dfde_mon[rep(seq_len(nrow(dfde_mon[2:5,])), n.times),]
+  
+  if(length(df4$mon[df4$mon==12])==0){
+          n.times<- c(744,744,720,744,720) 
+          dfde2_mon = dfde_mon[rep(seq_len(nrow(dfde_mon)), n.times),]
+  }else{
+          dfde2_mon_12=as.data.frame(lapply(dfde_mon[6,],rep, i))
+          dfde2_mon_7=as.data.frame(lapply(dfde_mon[1,],rep, (744-i)))
+          dfde2_mon = rbind(dfde2_mon_7,dfde2_mon_811,dfde2_mon_12)  
+  }
+  
+
+  df5 = as.data.frame(winddata_712[(1+i):(lh+i),1])
+  colnames(df5)<-c("date")
+  df5$ws_2 = df4$ws_2 - dfde2_mon$mean2
+  
+  refit_ws2<- arima(df5$ws_2, order=c(5,0,4), method = 'ML')
+  
+  trend1_ws2<-alpha02 + beta12*sin(w*(lh+i)) + beta22*cos(w*(lh+i)) + beta32*sin(w1*(lh+i))+beta42*cos(w1*(lh+i))
+  trend2_ws2<-alpha02 + beta12*sin(w*(lh+i+1)) + beta22*cos(w*(lh+i+1)) + beta32*sin(w1*(lh+i+1))+beta42*cos(w1*(lh+i+1))
+  trend3_ws2<-alpha02 + beta12*sin(w*(lh+i+2)) + beta22*cos(w*(lh+i+2)) + beta32*sin(w1*(lh+i+2))+beta42*cos(w1*(lh+i+2))
+  
+  daily_idx=rep(0,24)
+  if((i+1)%%24==0){
+          daily_idx=24
+  }else{
+          daily_idx=(i+1)%%24
+  }
+  
+  if(i==0){
+          final2$one_step[i+1] <- trend1_ws2 + forecast(refit_ws2,h=3)$mean[1] + df2[daily_idx,2]
+          final2$two_step[i+1] <- trend2_ws2 + forecast(refit_ws2,h=3)$mean[2] + df2[daily_idx,2]
+          final2$three_step[i+1] <- trend3_ws2 + forecast(refit_ws2,h=3)$mean[3] + df2[daily_idx,2]
+  }else{
+          final2$one_step[i+1] <- trend1_ws2 + forecast(refit_ws2,h=3)$mean[1] + dfde_mon[6,2] + df2[daily_idx,2]
+  final2$two_step[i+1] <- trend2_ws2 + forecast(refit_ws2,h=3)$mean[2] + dfde_mon[6,2] + df2[daily_idx,2]
+  final2$three_step[i+1] <- trend3_ws2 + forecast(refit_ws2,h=3)$mean[3] + dfde_mon[6,2] + df2[daily_idx,2]
+  }
+}
+
+final2$one_resid<-final2$ws_2-as.numeric(final2$one_step)
+final2$two_resid<-final2$ws_2-as.numeric(final2$two_step)
+final2$three_resid<-final2$ws_2-as.numeric(final2$three_step)
+
+final2$one_step<-as.numeric(final2$one_step)
+final2$two_step<-as.numeric(final2$two_step)
+final2$three_step<-as.numeric(final2$three_step)
+
+RMSE_one_ws2<-sum((final2$ws_2-final2$one_step)^2)/length(final2$one_resid)
+RMSE_two_ws2<-sum((final2$ws_2-final2$two_step)^2)/length(final2$two_resid)
+RMSE_three_ws2<-sum((final2$ws_2-final2$three_step)^2)/length(final2$three_resid)
+
+
+
+write.csv(final2,"/Users/glorysheryl/Documents/Fall2018/IOE565/Project/final2.csv")
+```
+
+
+```{r,warning=FALSE}
+#Prediction for ws3 arma(4,3)
+final3 = wind_pred[,c(1,4)]
+for (i in seq(0,743)){
+  df = winddata_712[(1+i):(lh+i),c(10,4)]
+  df2 =df %>% group_by(time) %>% summarise(mean3=mean(ws_3))
+  df3 = as.data.frame(lapply(df2,rep, lh/24))
+  df4 = as.data.frame(winddata_712[(1+i):(lh+i),1])
+  colnames(df4)<-c("date")
+  df4$ws_3 = df$ws_3 - df3$mean3
+  
+  df4$mon = str_sub(df4$date,6,7)
+  df4$mon <- as.integer(df4$mon)
+  df4$mon[744] <-7
+  df4$mon[744+744] <-8
+  df4$mon[744+744+720] <-9
+  df4$mon[744+744+720+744] <-10
+  df4$mon[744+744+720+744+720] <- 11
+  df4$mon[df4$mon==1] <- 12
+  
+  dfde_mon = df4 %>% group_by(mon) %>% summarise(mean3 = mean(ws_3))
+  mon12=length(df4$mon[df4$mon==12])#745
+
+  n.times <- c(744,720,744,720) 
+  dfde2_mon_811 = dfde_mon[rep(seq_len(nrow(dfde_mon[2:5,])), n.times),]
+  
+  if(length(df4$mon[df4$mon==12])==0){
+          n.times<- c(744,744,720,744,720) 
+          dfde2_mon = dfde_mon[rep(seq_len(nrow(dfde_mon)), n.times),]
+  }else{
+          dfde2_mon_12=as.data.frame(lapply(dfde_mon[6,],rep, i))
+          dfde2_mon_7=as.data.frame(lapply(dfde_mon[1,],rep, (744-i)))
+          dfde2_mon = rbind(dfde2_mon_7,dfde2_mon_811,dfde2_mon_12)  
+  }
+  
+
+  df5 = as.data.frame(winddata_712[(1+i):(lh+i),1])
+  colnames(df5)<-c("date")
+  df5$ws_3 = df4$ws_3 - dfde2_mon$mean3
+  
+  refit_ws3<- arima(df5$ws_3, order=c(4,0,3))
+  
+  trend1_ws3<-alpha03 + beta13*sin(w*(lh+i)) + beta23*cos(w*(lh+i)) + beta33*sin(w1*(lh+i))+beta43*cos(w1*(lh+i))
+  trend2_ws3<-alpha03 + beta13*sin(w*(lh+i+1)) + beta23*cos(w*(lh+i+1)) + beta33*sin(w1*(lh+i+1))+beta43*cos(w1*(lh+i+1))
+  trend3_ws3<-alpha03 + beta13*sin(w*(lh+i+2)) + beta23*cos(w*(lh+i+2)) + beta33*sin(w1*(lh+i+2))+beta43*cos(w1*(lh+i+2))
+  
+  daily_idx=rep(0,24)
+  if((i+1)%%24==0){
+          daily_idx=24
+  }else{
+          daily_idx=(i+1)%%24
+  }
+  
+  if(i==0){
+          final3$one_step[i+1] <- trend1_ws3 + forecast(refit_ws3,h=3)$mean[1] + df2[daily_idx,2]
+          final3$two_step[i+1] <- trend2_ws3 + forecast(refit_ws3,h=3)$mean[2] + df2[daily_idx,2]
+          final3$three_step[i+1] <- trend3_ws3 + forecast(refit_ws3,h=3)$mean[3] + df2[daily_idx,2]
+  }else{
+          final3$one_step[i+1] <- trend1_ws3 + forecast(refit_ws3,h=3)$mean[1] + dfde_mon[6,2] + df2[daily_idx,2]
+  final3$two_step[i+1] <- trend2_ws3 + forecast(refit_ws3,h=3)$mean[2] + dfde_mon[6,2] + df2[daily_idx,2]
+  final3$three_step[i+1] <- trend3_ws3 + forecast(refit_ws3,h=3)$mean[3] + dfde_mon[6,2] + df2[daily_idx,2]
+  }
+}
+
+final3$one_resid<-final3$ws_3-as.numeric(final3$one_step)
+final3$two_resid<-final3$ws_3-as.numeric(final3$two_step)
+final3$three_resid<-final3$ws_3-as.numeric(final3$three_step)
+
+final3$one_step<-as.numeric(final3$one_step)
+final3$two_step<-as.numeric(final3$two_step)
+final3$three_step<-as.numeric(final3$three_step)
+
+RMSE_one_ws3<-sum((final3$ws_3-final3$one_step)^2)/length(final3$one_resid)
+RMSE_two_ws3<-sum((final3$ws_3-final3$two_step)^2)/length(final3$two_resid)
+RMSE_three_ws3<-sum((final3$ws_3-final3$three_step)^2)/length(final3$three_resid)
+
+
+write.csv(final3,"/Users/glorysheryl/Documents/Fall2018/IOE565/Project/final3.csv")
+```
+
+
+```{r,warning=FALSE}
+#Prediction for ws4 arma(2,1)
+final4 = wind_pred[,c(1,5)]
+for (i in seq(0,743)){
+  df = winddata_712[(1+i):(lh+i),c(10,5)]
+  df2 =df %>% group_by(time) %>% summarise(mean4=mean(ws_4))
+  df3 = as.data.frame(lapply(df2,rep, lh/24))
+  df4 = as.data.frame(winddata_712[(1+i):(lh+i),1])
+  colnames(df4)<-c("date")
+  df4$ws_4 = df$ws_4 - df3$mean4
+  
+  df4$mon = str_sub(df4$date,6,7)
+  df4$mon <- as.integer(df4$mon)
+  df4$mon[744] <-7
+  df4$mon[744+744] <-8
+  df4$mon[744+744+720] <-9
+  df4$mon[744+744+720+744] <-10
+  df4$mon[744+744+720+744+720] <- 11
+  df4$mon[df4$mon==1] <- 12
+  
+  dfde_mon = df4 %>% group_by(mon) %>% summarise(mean4 = mean(ws_4))
+  mon12=length(df4$mon[df4$mon==12])#745
+
+  n.times <- c(744,720,744,720)
+  dfde2_mon_811 = dfde_mon[rep(seq_len(nrow(dfde_mon[2:5,])), n.times),]
+
+  if(length(df4$mon[df4$mon==12])==0){
+          n.times<- c(744,744,720,744,720)
+          dfde2_mon = dfde_mon[rep(seq_len(nrow(dfde_mon)), n.times),]
+  }else{
+          dfde2_mon_12=as.data.frame(lapply(dfde_mon[6,],rep, i))
+          dfde2_mon_7=as.data.frame(lapply(dfde_mon[1,],rep, (744-i)))
+          dfde2_mon = rbind(dfde2_mon_7,dfde2_mon_811,dfde2_mon_12)
+  }
+
+
+  df5 = as.data.frame(winddata_712[(1+i):(lh+i),1])
+  colnames(df5)<-c("date")
+  df5$ws_4 = df4$ws_4 - dfde2_mon$mean4
+
+  refit_ws4<- arima(df5$ws_4, order=c(2,0,1))
+
+  trend1_ws4<-alpha04 + beta14*sin(w*(lh+i)) + beta24*cos(w*(lh+i)) + beta34*sin(w1*(lh+i))+beta44*cos(w1*(lh+i))
+  trend2_ws4<-alpha04 + beta14*sin(w*(lh+i+1)) + beta24*cos(w*(lh+i+1)) + beta34*sin(w1*(lh+i+1))+beta44*cos(w1*(lh+i+1))
+  trend3_ws4<-alpha04 + beta14*sin(w*(lh+i+2)) + beta24*cos(w*(lh+i+2)) + beta34*sin(w1*(lh+i+2))+beta44*cos(w1*(lh+i+2))
+
+  daily_idx=rep(0,24)
+  if((i+1)%%24==0){
+          daily_idx=24
+  }else{
+          daily_idx=(i+1)%%24
+  }
+
+  if(i==0){
+          final4$one_step[i+1] <- trend1_ws4 + forecast(refit_ws4,h=3)$mean[1] + df2[daily_idx,2]
+          final4$two_step[i+1] <- trend2_ws4 + forecast(refit_ws4,h=3)$mean[2] + df2[daily_idx,2]
+          final4$three_step[i+1] <- trend3_ws4 + forecast(refit_ws4,h=3)$mean[3] + df2[daily_idx,2]
+  }else{
+        final4$one_step[i+1] <- trend1_ws4 + forecast(refit_ws4,h=3)$mean[1] + dfde_mon[6,2] + df2[daily_idx,2]
+        final4$two_step[i+1] <- trend2_ws4 + forecast(refit_ws4,h=3)$mean[2] + dfde_mon[6,2] + df2[daily_idx,2]
+        final4$three_step[i+1] <- trend3_ws4 + forecast(refit_ws4,h=3)$mean[3] + dfde_mon[6,2] + df2[daily_idx,2]
+  }
+}
+
+final4$one_resid<-final4$ws_4-as.numeric(final4$one_step)
+final4$two_resid<-final4$ws_4-as.numeric(final4$two_step)
+final4$three_resid<-final4$ws_4-as.numeric(final4$three_step)
+
+final4$one_step<-as.numeric(final4$one_step)
+final4$two_step<-as.numeric(final4$two_step)
+final4$three_step<-as.numeric(final4$three_step)
+
+RMSE_one_ws4<-sum((final4$ws_4-final$one_step)^2)/length(final4$one_resid)
+RMSE_two_ws4<-sum((final4$ws_4-final4$two_step)^2)/length(final4$two_resid)
+RMSE_three_ws4<-sum((final4$ws_4-final4$three_step)^2)/length(final4$three_resid)
+
+write.csv(final4,"/Users/glorysheryl/Documents/Fall2018/IOE565/Project/final4.csv")
+```
+
+```{r}
+# Compare the predicted wind speed and real observations
+
+t_ip = seq(from = as.POSIXct("2008-12-01 01:00"), 
+          to = as.POSIXct("2009-01-01 00:00"), by = "hour")
+
+ggplot() +
+  geom_line(data = final1, aes(x = t_ip, y = three_step, colour = "three_step")) +
+  geom_line(data = final1, aes(x = t_ip, y = two_step, colour = "two_step")) +
+  geom_line(data = final1, aes(x = t_ip, y = one_step, colour = "one_step"))  +
+  geom_line(data = final1, aes(x = t_ip, y = ws_1, colour = "Original Hourly Data"))  +
+  scale_colour_manual("", 
+                      breaks = c("three_step", "two_step", "one_step","Original Hourly Data"),
+                      values = c("palegreen3", "cornflowerblue", "goldenrod2","indianred")) +
+  xlab('Date') +
+  ylab('Wind Speed from Station No.1') + ggtitle('Prediction Station No.1')
+
+ggplot() +
+  geom_line(data = final2, aes(x = t_ip, y = three_step, colour = "three_step")) +
+  geom_line(data = final2, aes(x = t_ip, y = two_step, colour = "two_step")) +
+  geom_line(data = final2, aes(x = t_ip, y = one_step, colour = "one_step"))  +
+  geom_line(data = final2, aes(x = t_ip, y = ws_2, colour = "Original Hourly Data"))  +
+  scale_colour_manual("", 
+                      breaks = c("three_step", "two_step", "one_step","Original Hourly Data"),
+                      values = c("palegreen3", "cornflowerblue", "goldenrod2","indianred")) +
+  xlab('Date') +
+  ylab('Wind Speed from Station No.2') + ggtitle('Prediction Station No.2')
+
+ggplot() +
+  geom_line(data = final3, aes(x = t_ip, y = three_step, colour = "three_step")) +
+  geom_line(data = final3, aes(x = t_ip, y = two_step, colour = "two_step")) +
+  geom_line(data = final3, aes(x = t_ip, y = one_step, colour = "one_step"))  +
+  geom_line(data = final3, aes(x = t_ip, y = ws_3, colour = "Original Hourly Data"))  +
+  scale_colour_manual("", 
+                      breaks = c("three_step", "two_step", "one_step","Original Hourly Data"),
+                      values = c("palegreen3", "cornflowerblue", "goldenrod2","indianred")) +
+  xlab('Date') +
+  ylab('Wind Speed from Station No.3') + ggtitle('Prediction Station No.3')
+
+ggplot() +
+  geom_line(data = final4, aes(x = t_ip, y = three_step, colour = "three_step")) +
+  geom_line(data = final4, aes(x = t_ip, y = two_step, colour = "two_step")) +
+  geom_line(data = final4, aes(x = t_ip, y = one_step, colour = "one_step"))  +
+  geom_line(data = final4, aes(x = t_ip, y = ws_4, colour = "Original Hourly Data"))  +
+  scale_colour_manual("", 
+                      breaks = c("three_step", "two_step", "one_step","Original Hourly Data"),
+                      values = c("palegreen3", "cornflowerblue", "goldenrod2","indianred")) +
+  xlab('Date') +
+  ylab('Wind Speed from Station No.4') + ggtitle('Prediction Station No.4')
+```
+
+
+
+
+
+
+
+
+
